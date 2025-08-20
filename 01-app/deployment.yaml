@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vibedevops-app
+  namespace: happy-vibe-devops
+  labels:
+    app: vibedevops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vibedevops
+  template:
+    metadata:
+      labels:
+        app: vibedevops
+    spec:
+      containers:
+      - name: vibedevops
+        image: registry.happy-vibe-devops.svc.cluster.local:5000/vibedevops:latest
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vibedevops-service
+  namespace: happy-vibe-devops
+  labels:
+    app: vibedevops
+spec:
+  type: NodePort
+  ports:
+  - port: 8080
+    targetPort: 80
+    nodePort: 30080
+    protocol: TCP
+  selector:
+    app: vibedevops

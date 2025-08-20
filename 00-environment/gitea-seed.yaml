@@ -1,0 +1,109 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gitea-admin
+  namespace: git
+type: Opaque
+stringData:
+  username: "gitea-admin"
+  password: "s3cr3tP@ss!"
+  email: "admin@example.local"
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gitea-seed
+  namespace: git
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: seeder
+        image: alpine:3.20
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: GITEA_BASE_URL
+          value: "http://gitea-http:3000"   # Service created by Helm chart
+        - name: GITEA_ADMIN_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: gitea-admin
+              key: username
+        - name: GITEA_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: gitea-admin
+              key: password
+        volumeMounts:
+          - name: seed
+            mountPath: /seed
+        command:
+          - /bin/sh
+          - -ceu
+          - |
+            apk add --no-cache curl git jq
+
+            echo "⏳ Waiting for Gitea API..."
+            for i in $(seq 1 120); do
+              if curl -sSf "${GITEA_BASE_URL}/api/v1/version" >/dev/null; then
+                echo "✅ Gitea is up"
+                break
+              fi
+              sleep 2
+            done
+
+            echo "🔑 Creating admin API token"
+            TOKEN_JSON="$(curl -sS -u "${GITEA_ADMIN_USERNAME}:${GITEA_ADMIN_PASSWORD}" \
+              -H 'Content-Type: application/json' \
+              -X POST \
+              -d '{"name":"seed-token","scopes":["write:user","write:repository"]}' \
+              "${GITEA_BASE_URL}/api/v1/users/${GITEA_ADMIN_USERNAME}/tokens")"
+            TOKEN="$(echo "$TOKEN_JSON" | jq -r '.sha1')"
+            if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+              echo "❌ Failed to create token"; echo "$TOKEN_JSON"; exit 1
+            fi
+
+            echo "📦 Creating repository 'seed-repo'"
+            curl -sS -H "Authorization: token $TOKEN" \
+              -H 'Content-Type: application/json' \
+              -X POST \
+              -d '{"name":"seed-repo","private":false}' \
+              "${GITEA_BASE_URL}/api/v1/user/repos" || true
+
+            echo "📂 Copying files from /seed into git repo"
+            TMPDIR=$(mktemp -d)
+            cd "$TMPDIR"
+            git init -q
+            git config user.name "${GITEA_ADMIN_USERNAME}"
+            git config user.email "admin@example.local"
+
+            cp -L /seed/app.py .
+            cp -L /seed/Dockerfile .
+            cp -L /seed/deployment.yaml .
+
+            echo "📝 Files to commit:"
+            ls -lR "$TMPDIR"
+
+            git add .
+            git commit -m "Initial commit from seed job"
+
+            # Ensure branch name matches Gitea default
+            git branch -M main
+
+            echo "⬆️  Pushing to Gitea"
+            git remote add origin "http://${GITEA_ADMIN_USERNAME}:${TOKEN}@gitea-http:3000/${GITEA_ADMIN_USERNAME}/seed-repo.git"
+            git push -u origin main
+      volumes:
+      - name: seed
+        configMap:
+          name: gitea-seed-files
+          items:
+            - key: app.py
+              path: app.py
+            - key: Dockerfile
+              path: Dockerfile
+            - key: deployment.yaml
+              path: deployment.yaml

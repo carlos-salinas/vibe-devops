@@ -1,0 +1,14 @@
+gitea:
+  admin:
+    username: "gitea-admin"
+    password: "s3cr3tP@ss!"
+    email: "admin@example.local"
+service:
+  http:
+    type: NodePort
+    port: 3000
+    nodePort: 30000   # always use 3000 on the host
+  ssh:
+    type: NodePort
+    port: 22
+    nodePort: 30022   # always use 3022 on the host

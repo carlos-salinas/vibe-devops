@@ -1,0 +1,21 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: test-gitea-repo
+spec:
+  template:
+    spec:
+      containers:
+      - name: git-test
+        image: alpine/git:latest
+        command:
+          - sh
+          - -c
+          - |
+            echo "Cloning repository..."
+            git clone http://host.docker.internal:3000/gitea-admin/seed-repo.git
+            echo "Repository cloned successfully."
+            echo "Listing files:"
+            ls -R seed-repo
+      restartPolicy: Never
+  backoffLimit: 1
