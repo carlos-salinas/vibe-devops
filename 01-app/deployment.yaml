@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: vibedevops
-        image: registry.happy-vibe-devops.svc.cluster.local:5000/vibedevops:latest
+        image: host.docker.internal:5001/vibedevops:latest
         ports:
         - containerPort: 80
         resources:

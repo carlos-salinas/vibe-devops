@@ -21,7 +21,7 @@ Deploy Happy Vibe DevOps App with Tekton CI/CD
   - Local registry: localhost:5001 (for builds and pushes)
   - Kind registry: host.docker.internal:5001 (for cluster pulls)
   - Image tag: vibedevops:latest
-  - Build tool: Kaniko (gcr.io/kaniko-project/executor:latest)
+  - Build tool: [buidalh](https://buildah.io/)
 
   Kubernetes Deployment Target
 

@@ -151,10 +151,110 @@ kubectl apply -f 00-environment/deployment.yaml
 
 ### Tekton Pipeline Architecture
 - **Source Management**: Git-based source fetching task
-- **Build System**: Kaniko for container image building without Docker daemon
+- **Build System**: Buildah for container image building (switched from Kaniko due to local registry compatibility)
 - **Registry Integration**: Pushes to local insecure registry
 - **Deployment**: Automated Kubernetes manifest application
 - **Workspace**: Shared PVC for pipeline data persistence
+
+## Tekton Pipeline Best Practices
+
+Based on the working pipeline implementation in this repository, follow these patterns to avoid common mistakes:
+
+### 1. Pipeline Structure and Organization
+- **Always use consistent namespacing**: All Tekton resources (Pipeline, Tasks, PipelineRun, PVC, RBAC) must be in the same namespace
+- **Use meaningful names**: Follow the pattern `<app-name>-<resource-type>` (e.g., `vibedevops-pipeline`)
+- **Define clear descriptions**: Every Pipeline and Task should have a descriptive `spec.description`
+
+### 2. Parameter Management
+- **Always provide defaults**: Define sensible default values for all pipeline parameters
+- **Use consistent parameter names**: Follow patterns like `git-url`, `git-revision`, `image-reference`
+- **Document parameter types**: Explicitly specify `type: string` for all parameters
+
+### 3. Workspace Configuration
+- **Single shared workspace**: Use one workspace (`shared-data`) shared across all tasks
+- **Consistent workspace naming**: Map the same workspace to different names per task needs (`output` vs `source`)
+- **PVC-backed workspaces**: Always use PersistentVolumeClaim for data persistence between tasks
+
+### 4. Task Dependencies and Ordering
+- **Explicit task ordering**: Use `runAfter` to define task execution sequence
+- **Linear pipeline flow**: Structure tasks as: fetch-source → build-push → deploy
+- **Avoid parallel tasks**: For simplicity, run tasks sequentially unless truly independent
+
+### 5. Container Image Selection
+- **Buildah over Kaniko**: Use `quay.io/buildah/stable:latest` for build tasks in local environments
+- **Specific base images**: 
+  - Git operations: `alpine/git:latest`
+  - Kubernetes operations: `bitnami/kubectl:latest`
+  - Container builds: `quay.io/buildah/stable:latest`
+
+### 6. Local Registry Configuration
+- **Insecure registry setup**: Always configure registries.conf for local development
+- **Dual registry endpoints**: Support both `localhost:5001` and `host.docker.internal:5001`
+- **VFS storage driver**: Use `--storage-driver vfs` for Buildah in Kubernetes environments
+
+### 7. Security and Permissions
+- **Dedicated ServiceAccount**: Create a specific ServiceAccount (`pipeline`) for pipeline execution
+- **Minimal RBAC**: Grant only necessary permissions (pods, services, deployments, configmaps, secrets)
+- **Privileged containers**: Only use `privileged: true` for build tasks that require it (Buildah)
+
+### 8. Build Task Configuration
+```yaml
+# Essential Buildah configuration for Kubernetes
+securityContext:
+  runAsUser: 0
+  privileged: true
+volumes:
+  - name: buildah-storage
+    emptyDir: {}
+volumeMounts:
+  - name: buildah-storage
+    mountPath: /var/lib/containers
+env:
+  - name: STORAGE_DRIVER
+    value: vfs
+```
+
+### 9. Script Best Practices
+- **Error handling**: Always use `set -eu` in shell scripts
+- **Path consistency**: Use `$(workspaces.<name>.path)` for workspace access
+- **Working directory**: Set `workingDir` explicitly for each step
+- **Progress logging**: Include echo statements for debugging and monitoring
+
+### 10. Deployment Verification
+- **Rollout status**: Always check deployment status with `kubectl rollout status`
+- **Timeout handling**: Set reasonable timeouts (e.g., `--timeout=300s`)
+- **Resource verification**: Show final state with `kubectl get all -n <namespace>`
+
+### 11. Common Mistakes to Avoid
+- **Missing RBAC**: Don't forget to apply rbac.yaml before running pipelines
+- **Namespace mismatches**: Ensure all resources use the same namespace
+- **Registry access**: Configure insecure registry settings for local development
+- **Storage driver**: Don't use overlay2 in Kubernetes - use vfs for Buildah
+- **Missing volumes**: Buildah requires emptyDir volume for `/var/lib/containers`
+- **Workspace confusion**: Use correct workspace names in task references
+
+### 12. Deployment Order
+Always apply resources in this order:
+1. `workspace-pvc.yaml` (storage)
+2. `rbac.yaml` (permissions)
+3. `task-*.yaml` (task definitions)
+4. `pipeline.yaml` (pipeline definition)
+5. `pipelinerun.yaml` (execution)
+
+### 13. Troubleshooting Commands
+```bash
+# Check pipeline status
+kubectl get pipelinerun -n happy-vibe-devops
+
+# View detailed logs
+kubectl describe pipelinerun <run-name> -n happy-vibe-devops
+
+# Check task execution
+kubectl get taskrun -n happy-vibe-devops
+
+# Debug failed steps
+kubectl logs <pod-name> -c <step-name> -n happy-vibe-devops
+```
 
 ### Tekton MCP Server Integration
 
